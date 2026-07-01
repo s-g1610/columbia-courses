@@ -31,6 +31,7 @@ export default function Planner() {
   const [query, setQuery] = useState("");
   const [division, setDivision] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [openDivisions, setOpenDivisions] = useState<Set<string>>(new Set());
 
   const selections = useSchedule();
 
@@ -51,8 +52,37 @@ export default function Planner() {
     [termCourses, query, division],
   );
 
+  // Group the finder results by division for easier navigation.
+  const groupedByDivision = useMemo(() => {
+    const map = new Map<string, Course[]>();
+    for (const c of finderResults) {
+      const div = c.division ?? "Other";
+      if (!map.has(div)) map.set(div, []);
+      map.get(div)!.push(c);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [finderResults]);
+
+  // A division's courses are shown when the user opened it, or when a search /
+  // division filter is active (so results aren't hidden behind a collapsed header).
+  const forceOpen = query.trim().length > 0 || division !== "";
+  const isDivisionOpen = (div: string) => forceOpen || openDivisions.has(div);
+  function toggleDivision(div: string) {
+    setOpenDivisions((prev) => {
+      const next = new Set(prev);
+      next.has(div) ? next.delete(div) : next.add(div);
+      return next;
+    });
+  }
+
   const selectedSet = useMemo(
     () => new Set(termEntries.map((e) => e.section.section + "|" + e.course.code)),
+    [termEntries],
+  );
+
+  // Codes of selected courses, to badge divisions that contain schedule items.
+  const selectedCodes = useMemo(
+    () => new Set(termEntries.map((e) => e.course.code)),
     [termEntries],
   );
 
@@ -72,6 +102,90 @@ export default function Planner() {
       section: section.section,
     };
     scheduleStore.toggle(sel);
+  }
+
+  function renderCourseItem(course: Course) {
+    const secs = sectionsInTerm(course, term);
+    const isOpen = expanded === course.code;
+    const anySelected = secs.some((s) => isSelected(course, s));
+    return (
+      <li
+        key={course.code}
+        className={`rounded-lg border ${
+          anySelected
+            ? "border-sky-400 dark:border-sky-600"
+            : "border-neutral-200 dark:border-neutral-800"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setExpanded(isOpen ? null : course.code)}
+          className="flex w-full items-start justify-between gap-3 rounded-lg p-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900"
+          aria-expanded={isOpen}
+        >
+          <span>
+            <span className="font-mono text-xs font-semibold text-sky-700 dark:text-sky-400">
+              {course.code}
+            </span>
+            <span className="ml-2 font-medium">{course.title}</span>
+            <span className="mt-0.5 block text-xs text-neutral-500">
+              {creditValue(course) || "?"} credits · {secs.length} section
+              {secs.length !== 1 ? "s" : ""}
+              {anySelected ? " · ✓ in schedule" : ""}
+            </span>
+          </span>
+          <span className="shrink-0 text-neutral-400">{isOpen ? "▲" : "▼"}</span>
+        </button>
+
+        {isOpen && (
+          <ul className="space-y-2 border-t border-neutral-100 p-3 dark:border-neutral-800">
+            {secs.map((s) => {
+              const selected = isSelected(course, s);
+              const schedulable = sectionIsSchedulable(s);
+              const clash = !selected && wouldClash(s);
+              return (
+                <li
+                  key={s.section}
+                  className="flex items-start justify-between gap-3 text-sm"
+                >
+                  <div>
+                    <div className="font-medium">{s.section}</div>
+                    <div className="text-xs text-neutral-500">
+                      {schedulable ? (
+                        uniqueMeetingLabels(s).map((label, i) => (
+                          <div key={i}>{label}</div>
+                        ))
+                      ) : (
+                        <span>No meeting time listed</span>
+                      )}
+                      {s.faculty ? <div>{s.faculty}</div> : null}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => toggle(course, s)}
+                      className={`rounded-md px-3 py-1 text-xs font-medium ${
+                        selected
+                          ? "bg-neutral-200 text-neutral-800 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-100"
+                          : "bg-sky-600 text-white hover:bg-sky-700"
+                      }`}
+                    >
+                      {selected ? "Remove" : "Add"}
+                    </button>
+                    {clash && (
+                      <span className="text-[10px] font-medium text-red-600 dark:text-red-400">
+                        conflicts
+                      </span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </li>
+    );
   }
 
   return (
@@ -159,96 +273,43 @@ export default function Planner() {
             {finderResults.length} courses offered in {term}
           </p>
 
-          <ul className="mt-3 max-h-[70vh] space-y-2 overflow-y-auto pr-1">
-            {finderResults.map((course) => {
-              const secs = sectionsInTerm(course, term);
-              const isOpen = expanded === course.code;
-              const anySelected = secs.some((s) => isSelected(course, s));
+          <div className="mt-3 max-h-[70vh] space-y-2 overflow-y-auto pr-1">
+            {groupedByDivision.map(([div, list]) => {
+              const open = isDivisionOpen(div);
+              const selectedHere = list.filter((c) =>
+                selectedCodes.has(c.code),
+              ).length;
               return (
-                <li
-                  key={course.code}
-                  className={`rounded-lg border ${
-                    anySelected
-                      ? "border-sky-400 dark:border-sky-600"
-                      : "border-neutral-200 dark:border-neutral-800"
-                  }`}
-                >
+                <div key={div}>
                   <button
                     type="button"
-                    onClick={() => setExpanded(isOpen ? null : course.code)}
-                    className="flex w-full items-start justify-between gap-3 rounded-lg p-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900"
-                    aria-expanded={isOpen}
+                    onClick={() => toggleDivision(div)}
+                    aria-expanded={open}
+                    disabled={forceOpen}
+                    className="sticky top-0 z-10 flex w-full items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-neutral-100 px-3 py-2 text-left text-sm font-semibold hover:bg-neutral-200 disabled:cursor-default dark:border-neutral-700 dark:bg-neutral-800 dark:hover:bg-neutral-700"
                   >
                     <span>
-                      <span className="font-mono text-xs font-semibold text-sky-700 dark:text-sky-400">
-                        {course.code}
-                      </span>
-                      <span className="ml-2 font-medium">{course.title}</span>
-                      <span className="mt-0.5 block text-xs text-neutral-500">
-                        {course.division ?? "—"} ·{" "}
-                        {creditValue(course) || "?"} credits · {secs.length}{" "}
-                        section{secs.length !== 1 ? "s" : ""}
-                        {anySelected ? " · ✓ in schedule" : ""}
+                      {div}
+                      <span className="ml-2 font-normal text-neutral-500">
+                        {list.length} course{list.length !== 1 ? "s" : ""}
+                        {selectedHere > 0 ? ` · ${selectedHere} in schedule` : ""}
                       </span>
                     </span>
-                    <span className="shrink-0 text-neutral-400">
-                      {isOpen ? "▲" : "▼"}
-                    </span>
+                    {!forceOpen && (
+                      <span className="shrink-0 text-neutral-400">
+                        {open ? "▲" : "▼"}
+                      </span>
+                    )}
                   </button>
-
-                  {isOpen && (
-                    <ul className="space-y-2 border-t border-neutral-100 p-3 dark:border-neutral-800">
-                      {secs.map((s) => {
-                        const selected = isSelected(course, s);
-                        const schedulable = sectionIsSchedulable(s);
-                        const clash = !selected && wouldClash(s);
-                        return (
-                          <li
-                            key={s.section}
-                            className="flex items-start justify-between gap-3 text-sm"
-                          >
-                            <div>
-                              <div className="font-medium">{s.section}</div>
-                              <div className="text-xs text-neutral-500">
-                                {schedulable ? (
-                                  uniqueMeetingLabels(s).map((label, i) => (
-                                    <div key={i}>{label}</div>
-                                  ))
-                                ) : (
-                                  <span>No meeting time listed</span>
-                                )}
-                                {s.faculty ? (
-                                  <div>{s.faculty}</div>
-                                ) : null}
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 flex-col items-end gap-1">
-                              <button
-                                type="button"
-                                onClick={() => toggle(course, s)}
-                                className={`rounded-md px-3 py-1 text-xs font-medium ${
-                                  selected
-                                    ? "bg-neutral-200 text-neutral-800 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-100"
-                                    : "bg-sky-600 text-white hover:bg-sky-700"
-                                }`}
-                              >
-                                {selected ? "Remove" : "Add"}
-                              </button>
-                              {clash && (
-                                <span className="text-[10px] font-medium text-red-600 dark:text-red-400">
-                                  conflicts
-                                </span>
-                              )}
-                            </div>
-                          </li>
-                        );
-                      })}
+                  {open && (
+                    <ul className="mt-2 space-y-2 pl-2">
+                      {list.map((course) => renderCourseItem(course))}
                     </ul>
                   )}
-                </li>
+                </div>
               );
             })}
-          </ul>
+          </div>
         </section>
 
         {/* My schedule */}
