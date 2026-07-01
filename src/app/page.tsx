@@ -1,9 +1,20 @@
 import CourseBrowser from "@/components/CourseBrowser";
-import { getAllCourses, getDivisions } from "@/lib/courses";
+import {
+  getAllCourses,
+  getDivisions,
+  getTerms,
+  getPathways,
+  getFormats,
+} from "@/lib/courses";
 
 export default function Home() {
   const courses = getAllCourses();
-  const divisions = getDivisions();
+  const options = {
+    divisions: getDivisions(),
+    terms: getTerms(),
+    pathways: getPathways(),
+    formats: getFormats(),
+  };
 
   return (
     <div>
@@ -13,11 +24,11 @@ export default function Home() {
         </h1>
         <p className="mt-2 text-neutral-600 dark:text-neutral-400">
           Search {courses.length} courses by code, title, instructor, or
-          keyword. Open any course for credits, terms, prerequisites,
-          instructors, and similar courses.
+          keyword, and filter by division, term, pathway, or format. Open any
+          course for terms, prerequisites, instructors, and similar courses.
         </p>
       </div>
-      <CourseBrowser courses={courses} divisions={divisions} />
+      <CourseBrowser courses={courses} options={options} />
     </div>
   );
 }

@@ -61,6 +61,40 @@ export function getDivisions(): string[] {
   return [...set].sort();
 }
 
+/** Distinct curriculum pathways, sorted, for the filter UI. */
+export function getPathways(): string[] {
+  const set = new Set<string>();
+  for (const c of courses) if (c.pathway) set.add(c.pathway);
+  return [...set].sort();
+}
+
+/** Distinct course formats, sorted, for the filter UI. */
+export function getFormats(): string[] {
+  const set = new Set<string>();
+  for (const c of courses) if (c.format) set.add(c.format);
+  return [...set].sort();
+}
+
+/** Rank a term label like "Fall 2026" for most-recent-first sorting. */
+function termRank(t: string): number {
+  const m = t.match(/(Spring|Summer|Fall|Winter)\s*(\d{4})/i);
+  if (!m) return -1;
+  const season: Record<string, number> = {
+    winter: 0,
+    spring: 1,
+    summer: 2,
+    fall: 3,
+  };
+  return parseInt(m[2]) * 10 + (season[m[1].toLowerCase()] ?? 0);
+}
+
+/** Distinct terms courses are offered in, most recent first, for the filter UI. */
+export function getTerms(): string[] {
+  const set = new Set<string>();
+  for (const c of courses) for (const t of c.terms ?? []) set.add(t);
+  return [...set].sort((a, b) => termRank(b) - termRank(a));
+}
+
 // ---------------------------------------------------------------------------
 // Text utilities (shared by search and similarity)
 // ---------------------------------------------------------------------------
@@ -163,6 +197,9 @@ export function getSimilarCourses(course: Course, limit = 6): Course[] {
 export interface SearchFilters {
   query?: string;
   division?: string;
+  term?: string;
+  pathway?: string;
+  format?: string;
 }
 
 /**
@@ -175,6 +212,15 @@ export function searchCourses(all: Course[], filters: SearchFilters): Course[] {
 
   if (filters.division) {
     results = results.filter((c) => c.division === filters.division);
+  }
+  if (filters.term) {
+    results = results.filter((c) => (c.terms ?? []).includes(filters.term!));
+  }
+  if (filters.pathway) {
+    results = results.filter((c) => c.pathway === filters.pathway);
+  }
+  if (filters.format) {
+    results = results.filter((c) => c.format === filters.format);
   }
 
   const q = filters.query?.trim().toLowerCase();
