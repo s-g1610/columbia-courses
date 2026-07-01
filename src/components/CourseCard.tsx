@@ -11,9 +11,9 @@ export default function CourseCard({ course }: { course: Course }) {
         <span className="font-mono text-sm font-semibold text-sky-700 dark:text-sky-400">
           {course.code}
         </span>
-        {course.format && (
+        {course.credits && (
           <span className="shrink-0 text-xs text-neutral-500">
-            {course.format}
+            {course.credits} cr
           </span>
         )}
       </div>

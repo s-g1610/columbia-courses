@@ -6,14 +6,28 @@ import rawCourses from "@/data/courses.json";
  * Most fields are optional because the source pages are inconsistent — render
  * defensively and only show what exists.
  */
-/** A single scheduled offering of a course in one term. */
-export interface Offering {
+/** One meeting pattern within a section (raw strings from the source). */
+export interface Meeting {
+  /** e.g. "Tuesday, Thursday". */
+  days?: string;
+  /** e.g. "10/26/2026 - 12/11/2026". */
+  dates?: string;
+  /** e.g. "2:20PM - 3:50PM". */
+  time?: string;
+  /** e.g. "Kravis 620". */
+  room?: string;
+}
+
+/** A single section of a course offered in one term. */
+export interface Section {
   term: string;
-  section?: string;
+  /** e.g. "B6101 - 001". */
+  section: string;
   faculty?: string;
   partOfTerm?: string;
   format?: string;
   notes?: string;
+  meetings?: Meeting[];
 }
 
 export interface Course {
@@ -27,18 +41,20 @@ export interface Course {
   program?: string;
   /** Curriculum pathway, e.g. "AI and Data Analytics". */
   pathway?: string;
+  /** Credit hours as listed in the catalog, e.g. "3" or "1.5". */
+  credits?: string;
+  /** Degree program, e.g. "MBA", "EMBA". */
+  degree?: string;
   /** Terms the course runs, most recent first, e.g. ["Fall 2026", "Spring 2026"]. */
   terms?: string[];
-  /** Distinct instructors across all offerings. */
+  /** Distinct instructors across all sections. */
   instructors?: string[];
-  /** Course format from the most recent offering, e.g. "A Term", "Full Term". */
-  format?: string;
   /** Prerequisite/corequisite statements as shown on the page. */
   prerequisites?: string[];
   /** Course codes referenced by the prerequisites (for cross-linking). */
   prereqCodes?: string[];
-  /** Full per-term offering history. */
-  offerings?: Offering[];
+  /** Every section across every term, with meeting times. */
+  sections?: Section[];
   /** Canonical URL of the source page. */
   url: string;
 }
@@ -68,15 +84,16 @@ export function getPathways(): string[] {
   return [...set].sort();
 }
 
-/** Distinct course formats, sorted, for the filter UI. */
+/** Distinct section formats across all sections, sorted, for the filter UI. */
 export function getFormats(): string[] {
   const set = new Set<string>();
-  for (const c of courses) if (c.format) set.add(c.format);
+  for (const c of courses)
+    for (const s of c.sections ?? []) if (s.format) set.add(s.format);
   return [...set].sort();
 }
 
 /** Rank a term label like "Fall 2026" for most-recent-first sorting. */
-function termRank(t: string): number {
+export function termRank(t: string): number {
   const m = t.match(/(Spring|Summer|Fall|Winter)\s*(\d{4})/i);
   if (!m) return -1;
   const season: Record<string, number> = {
@@ -93,6 +110,18 @@ export function getTerms(): string[] {
   const set = new Set<string>();
   for (const c of courses) for (const t of c.terms ?? []) set.add(t);
   return [...set].sort((a, b) => termRank(b) - termRank(a));
+}
+
+/** Courses that have at least one section in the given term, sorted by code. */
+export function getCoursesForTerm(term: string): Course[] {
+  return courses
+    .filter((c) => (c.sections ?? []).some((s) => s.term === term))
+    .sort((a, b) => a.code.localeCompare(b.code));
+}
+
+/** Sections of a course offered in a specific term. */
+export function sectionsInTerm(course: Course, term: string): Section[] {
+  return (course.sections ?? []).filter((s) => s.term === term);
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +249,9 @@ export function searchCourses(all: Course[], filters: SearchFilters): Course[] {
     results = results.filter((c) => c.pathway === filters.pathway);
   }
   if (filters.format) {
-    results = results.filter((c) => c.format === filters.format);
+    results = results.filter((c) =>
+      (c.sections ?? []).some((s) => s.format === filters.format),
+    );
   }
 
   const q = filters.query?.trim().toLowerCase();
